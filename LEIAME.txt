@@ -1,0 +1,12 @@
+XDAT Editor — L2JA.L.N
+----------------------
+Editor para Interface.xdat (acmi/xdat_editor).
+
+Requisito: Java 8 com JavaFX no PC (nao use so Java 21 sem JavaFX).
+  Sugestao: winget install Azul.ZuluFX.8.JDK
+
+Como abrir: duplo clique em "Iniciar XDAT Editor L2JA.LN.bat"
+
+Se der erro de JavaFX, o JDK nao e o ZuluFX 8.
+
+Pasta: bin\ e lib\ — nao apagues; o .bat arranca o editor por ai.
