@@ -17,15 +17,25 @@ jobs:
           path: unreal
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+      - name: Retarget legacy projects
+        shell: pwsh
+        run: |
+          Get-ChildItem unreal -Recurse -Filter *.vcxproj | ForEach-Object {
+            $p = $_.FullName
+            $s = Get-Content $p -Raw
+            $s = $s -replace '<PlatformToolset>v100</PlatformToolset>', '<PlatformToolset>v143</PlatformToolset>'
+            $s = $s -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>'
+            Set-Content -Path $p -Value $s -Encoding UTF8
+          }
       - name: Build UCC and capture log
         shell: cmd
         continue-on-error: true
-        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32 /fl /flp:logfile=ucc-build.log;verbosity=diagnostic
+        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /fl /flp:logfile=ucc-build.log;verbosity=diagnostic
       - name: Find outputs
         shell: pwsh
         run: |
           Get-ChildItem -Path unreal -Filter UCC.exe -Recurse | Format-Table FullName,Length
-          if (Test-Path ucc-build.log) { Get-Content ucc-build.log -Tail 200 }
+          if (Test-Path ucc-build.log) { Get-Content ucc-build.log -Tail 300 }
       - name: Upload UCC and log
         uses: actions/upload-artifact@v4
         with:
