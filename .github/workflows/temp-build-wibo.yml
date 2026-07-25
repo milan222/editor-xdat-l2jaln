@@ -27,6 +27,7 @@ jobs:
             $s = $s -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>'
             $s = $s -replace '<TreatWarningAsError>true</TreatWarningAsError>', '<TreatWarningAsError>false</TreatWarningAsError>'
             $s = $s -replace '<WarningLevel>Level4</WarningLevel>', '<WarningLevel>Level3</WarningLevel>'
+            $s = [regex]::Replace($s, '<PreprocessorDefinitions>(.*?)</PreprocessorDefinitions>', '<PreprocessorDefinitions>WINDOWS_IGNORE_PACKING_MISMATCH;_CRT_SECURE_NO_WARNINGS;$1</PreprocessorDefinitions>')
             Set-Content -Path $p -Value $s -Encoding UTF8
           }
           $native = 'unreal/Core/Inc/UnCoreNative.h'
@@ -64,5 +65,6 @@ jobs:
           path: |
             unreal/System/UCC.exe
             unreal/UCC/Release/UCC.exe
+            unreal/System/*.dll
             ucc-build.log
           if-no-files-found: warn
