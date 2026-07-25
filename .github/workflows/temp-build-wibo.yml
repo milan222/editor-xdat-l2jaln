@@ -1,4 +1,4 @@
-name: Temp Build UE2 UCC
+name: Temp Build Patched Wibo
 
 on:
   pull_request:
@@ -6,65 +6,46 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-ucc:
-    runs-on: windows-latest
+  build:
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Unreal2004 source
+      - name: Checkout wibo
         uses: actions/checkout@v4
         with:
-          repository: jmarshall23/Unreal2004
-          ref: 07249c526830e8ffa4e6a3b133c92896f44a686a
-          path: unreal
-      - name: Setup MSBuild
-        uses: microsoft/setup-msbuild@v2
-      - name: Retarget and patch legacy source
-        shell: pwsh
+          repository: decompals/wibo
+          ref: 1.2.0
+          path: wibo
+      - name: Patch harmless missing WinMM calls
+        shell: bash
         run: |
-          Get-ChildItem unreal -Recurse -Filter *.vcxproj | ForEach-Object {
-            $p = $_.FullName
-            $s = Get-Content $p -Raw
-            $s = $s -replace '<PlatformToolset>v100</PlatformToolset>', '<PlatformToolset>v143</PlatformToolset>'
-            $s = $s -replace '<WindowsTargetPlatformVersion>[^<]+</WindowsTargetPlatformVersion>', '<WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>'
-            $s = $s -replace '<TreatWarningAsError>true</TreatWarningAsError>', '<TreatWarningAsError>false</TreatWarningAsError>'
-            $s = $s -replace '<WarningLevel>Level4</WarningLevel>', '<WarningLevel>Level3</WarningLevel>'
-            $s = [regex]::Replace($s, '<PreprocessorDefinitions>(.*?)</PreprocessorDefinitions>', '<PreprocessorDefinitions>WINDOWS_IGNORE_PACKING_MISMATCH;_CRT_SECURE_NO_WARNINGS;$1</PreprocessorDefinitions>')
-            Set-Content -Path $p -Value $s -Encoding UTF8
-          }
-          $native = 'unreal/Core/Inc/UnCoreNative.h'
-          $s = Get-Content $native -Raw
-          $s = $s.Replace('{TEXT("int")TEXT(#cls)TEXT(#name), &cls::name},', '{TEXT("int") TEXT(#cls) TEXT(#name), &cls::name},')
-          Set-Content -Path $native -Value $s -Encoding UTF8
-          $lev = 'unreal/Engine/Src/UnLevAct.cpp'
-          $s = Get-Content $lev -Raw
-          $sortLines = @(
-            'for( INT SortI=0; SortI<NumHits-1; SortI++ )',
-            "`t`t`tfor( INT SortJ=SortI+1; SortJ<NumHits; SortJ++ )",
-            "`t`t`t`tif( CompareHits(&Hits[SortI], &Hits[SortJ]) > 0 )",
-            "`t`t`t`t{",
-            "`t`t`t`t`tFCheckResult TempHit = Hits[SortI];",
-            "`t`t`t`t`tHits[SortI] = Hits[SortJ];",
-            "`t`t`t`t`tHits[SortJ] = TempHit;",
-            "`t`t`t`t}"
-          )
-          $sort = $sortLines -join "`r`n"
-          $s = $s.Replace('appQsort( Hits, NumHits, sizeof(Hits[0]), (QSORT_COMPARE)CompareHits );', $sort)
-          Set-Content -Path $lev -Value $s -Encoding UTF8
-      - name: Build UCC and capture log
-        shell: cmd
-        continue-on-error: true
-        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32 /p:PlatformToolset=v143 /p:WindowsTargetPlatformVersion=10.0 /p:TreatWarningAsError=false /p:WarningsAsErrors= /fl /flp:logfile=ucc-build.log;verbosity=diagnostic
-      - name: Find outputs
-        shell: pwsh
+          set -euxo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('wibo/src/modules.cpp')
+          s=p.read_text()
+          marker='wibo: call reached missing import'
+          pos=s.find(marker)
+          if pos < 0:
+              raise SystemExit('missing-import marker not found')
+          start=s.rfind('template <size_t Index>',0,pos)
+          end=s.find('\n}',pos)+2
+          block=s[start:end]
+          print(block)
+          patched=block.replace('abort();','return;')
+          if patched == block:
+              raise SystemExit('abort call not found in stubThunk block')
+          s=s[:start]+patched+s[end:]
+          p.write_text(s)
+          PY
+      - name: Build static x86_64
+        shell: bash
         run: |
-          Get-ChildItem -Path unreal -Filter UCC.exe -Recurse | Format-Table FullName,Length
-          if (Test-Path ucc-build.log) { Get-Content ucc-build.log -Tail 300 }
-      - name: Upload UCC and log
+          cd wibo
+          docker build --target export --build-arg BUILD_TYPE=release --build-arg WIBO_VERSION=1.2.0-h5 -o ../dist .
+      - name: Upload patched wibo
         uses: actions/upload-artifact@v4
         with:
-          name: ue2-ucc-build
-          path: |
-            unreal/System/UCC.exe
-            unreal/UCC/Release/UCC.exe
-            unreal/System/*.dll
-            ucc-build.log
-          if-no-files-found: warn
+          name: wibo-h5-patched
+          path: dist/wibo
+          if-no-files-found: error
