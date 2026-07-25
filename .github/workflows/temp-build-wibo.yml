@@ -18,7 +18,7 @@ jobs:
       - name: Build static x86_64
         run: |
           cd wibo
-          docker build --target export --build-arg BUILD_TYPE=release64 --build-arg WIBO_VERSION=1.2.0 -o ../dist .
+          docker build --target export --build-arg BUILD_TYPE=release --build-arg WIBO_VERSION=1.2.0 -o ../dist .
       - name: Upload wibo
         uses: actions/upload-artifact@v4
         with:
