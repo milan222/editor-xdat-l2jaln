@@ -1,0 +1,134 @@
+name: Temp Secure Compile H5 Interface
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  compile:
+    if: github.head_ref == 'temp/interface-u-build-20260725'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_BRANCH: temp/interface-u-build-20260725
+    steps:
+      - name: Checkout temporary branch
+        uses: actions/checkout@v4
+        with:
+          ref: temp/interface-u-build-20260725
+          fetch-depth: 0
+
+      - name: Generate one-time RSA key
+        shell: pwsh
+        run: |
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out private.pem
+          openssl pkey -in private.pem -pubout -out public.pem
+
+      - name: Publish one-time public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: h5-source-public-key
+          path: public.pem
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Wait for encrypted source parts
+        shell: pwsh
+        run: |
+          $found = $false
+          for ($i = 0; $i -lt 180; $i++) {
+            git fetch origin "$env:SOURCE_BRANCH" --quiet
+            $ok1 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part01" 2>$null; $LASTEXITCODE -eq 0)
+            $ok2 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part02" 2>$null; $LASTEXITCODE -eq 0)
+            $ok3 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part03" 2>$null; $LASTEXITCODE -eq 0)
+            if ($ok1 -and $ok2 -and $ok3) { $found = $true; break }
+            Start-Sleep -Seconds 5
+          }
+          if (-not $found) { throw 'Encrypted source parts were not received.' }
+          git show "origin/$env:SOURCE_BRANCH`:secure/source.part01" | Out-File -Encoding ascii -NoNewline source.part01
+          git show "origin/$env:SOURCE_BRANCH`:secure/source.part02" | Out-File -Encoding ascii -NoNewline source.part02
+          git show "origin/$env:SOURCE_BRANCH`:secure/source.part03" | Out-File -Encoding ascii -NoNewline source.part03
+          $b64 = (Get-Content source.part01 -Raw) + (Get-Content source.part02 -Raw) + (Get-Content source.part03 -Raw)
+          [IO.File]::WriteAllBytes('source_payload.zip', [Convert]::FromBase64String($b64))
+
+      - name: Decrypt source archive
+        shell: pwsh
+        run: |
+          Expand-Archive source_payload.zip -DestinationPath secure_payload -Force
+          openssl pkeyutl -decrypt -inkey private.pem -in secure_payload/key.enc -out keyiv.bin -pkeyopt rsa_padding_mode:oaep
+          $bytes = [IO.File]::ReadAllBytes('keyiv.bin')
+          if ($bytes.Length -ne 48) { throw "Invalid key material length: $($bytes.Length)" }
+          $key = -join ($bytes[0..31] | ForEach-Object { $_.ToString('x2') })
+          $iv = -join ($bytes[32..47] | ForEach-Object { $_.ToString('x2') })
+          openssl enc -d -aes-256-cbc -K $key -iv $iv -in secure_payload/source.bin -out repaired_source.zip
+          Expand-Archive repaired_source.zip -DestinationPath repaired_source -Force
+
+      - name: Download original H5 compiler artifact
+        shell: pwsh
+        run: |
+          gh api -H 'Accept: application/vnd.github+json' /repos/milan222/editor-xdat-l2jaln/actions/artifacts/8624952463/zip > compiler_artifact.zip
+          Expand-Archive compiler_artifact.zip -DestinationPath compiler_outer -Force
+          $inner = Get-ChildItem compiler_outer -Filter 'Compiler_Interface-H5.zip' -Recurse | Select-Object -First 1
+          if (-not $inner) { throw 'Compiler_Interface-H5.zip not found.' }
+          & 'C:\Program Files\7-Zip\7z.exe' x "-pNewYear2017" '-y' "-ocompiler" $inner.FullName
+          if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
+
+      - name: Install repaired Interface sources
+        shell: pwsh
+        run: |
+          $compilerRoot = Get-ChildItem compiler -Directory -Recurse | Where-Object { Test-Path (Join-Path $_.FullName 'System\UCC.exe') } | Select-Object -First 1
+          if (-not $compilerRoot) { throw 'H5 compiler root not found.' }
+          $sourceInterface = Get-ChildItem repaired_source -Directory -Recurse | Where-Object { Test-Path (Join-Path $_.FullName 'Classes') -and (Test-Path (Join-Path $_.FullName 'Interface.UPKG')) } | Select-Object -First 1
+          if (-not $sourceInterface) { throw 'Repaired Interface source root not found.' }
+          $targetInterface = Join-Path $compilerRoot.FullName 'interface'
+          Remove-Item (Join-Path $targetInterface 'Classes') -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item (Join-Path $targetInterface 'Classes') -ItemType Directory -Force | Out-Null
+          Copy-Item (Join-Path $sourceInterface.FullName 'Classes\*') (Join-Path $targetInterface 'Classes') -Recurse -Force
+          Copy-Item (Join-Path $sourceInterface.FullName 'Interface.UPKG') (Join-Path $targetInterface 'Interface.UPKG') -Force
+          $compilerRoot.FullName | Out-File compiler_root.txt -Encoding ascii -NoNewline
+          (Get-ChildItem (Join-Path $targetInterface 'Classes') -Filter '*.uc').Count | Out-File source_count.txt -Encoding ascii
+
+      - name: Compile Interface.u
+        id: compile
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $root = Get-Content compiler_root.txt -Raw
+          $system = Join-Path $root 'System'
+          Push-Location $system
+          Remove-Item Interface.u,UCC.log -Force -ErrorAction SilentlyContinue
+          cmd /c 'UCC.exe make -NoBind > compile_stdout.txt 2>&1'
+          $code = $LASTEXITCODE
+          "UCC_EXIT_CODE=$code" | Out-File compile_status.txt -Encoding ascii
+          Get-ChildItem Interface.u,UCC.log,compile_stdout.txt,compile_status.txt -ErrorAction SilentlyContinue | Format-Table Name,Length | Out-String | Write-Host
+          Pop-Location
+
+      - name: Prepare result
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item result -ItemType Directory -Force | Out-Null
+          if (Test-Path compiler_root.txt) {
+            $root = Get-Content compiler_root.txt -Raw
+            $system = Join-Path $root 'System'
+            Copy-Item (Join-Path $system 'Interface.u') result -Force -ErrorAction SilentlyContinue
+            Copy-Item (Join-Path $system 'UCC.log') result -Force -ErrorAction SilentlyContinue
+            Copy-Item (Join-Path $system 'compile_stdout.txt') result -Force -ErrorAction SilentlyContinue
+            Copy-Item (Join-Path $system 'compile_status.txt') result -Force -ErrorAction SilentlyContinue
+          }
+          Copy-Item source_count.txt result -Force -ErrorAction SilentlyContinue
+
+      - name: Upload compile result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: h5-interface-compile-result
+          path: result/*
+          retention-days: 1
+          if-no-files-found: warn
