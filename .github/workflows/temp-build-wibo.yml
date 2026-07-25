@@ -1,0 +1,26 @@
+name: Temp Build Wibo
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout wibo
+        uses: actions/checkout@v4
+        with:
+          repository: decompals/wibo
+          ref: 1.2.0
+          path: wibo
+      - name: Build static x86_64
+        run: |
+          cd wibo
+          docker build --target export --build-arg BUILD_TYPE=release64 --build-arg WIBO_VERSION=1.2.0 -o ../dist .
+      - name: Upload wibo
+        uses: actions/upload-artifact@v4
+        with:
+          name: wibo-x86_64
+          path: dist/wibo
