@@ -9,45 +9,42 @@ jobs:
   download:
     runs-on: ubuntu-latest
     steps:
-      - name: Download public H5 compiler archive
+      - name: Extract High Five Mega link
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p diagnostics out
+          URL='https://maxcheaters.com/topic/235950-compiler-collection-for-interfaceu/'
+          curl -k -L --compressed \
+            -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36' \
+            -o diagnostics/maxcheaters.html "$URL"
+          python3 - <<'PY'
+          import html,re
+          from pathlib import Path
+          s=html.unescape(Path('diagnostics/maxcheaters.html').read_text(errors='ignore'))
+          urls=re.findall(r'https?://(?:www\.)?mega\.nz/[^\"\'<>\s]+',s)
+          urls=[u.replace('&amp;','&') for u in urls]
+          Path('diagnostics/mega_urls.txt').write_text('\n'.join(urls))
+          for i,u in enumerate(urls): print(i,u)
+          for m in re.finditer('High Five Compiler',s,re.I):
+              Path('diagnostics/highfive_context.txt').write_text(s[max(0,m.start()-1500):m.start()+3000])
+              break
+          h5=[u for u in urls if 'vQ5ynKaZ' in u]
+          if h5:
+              Path('diagnostics/h5_mega_url.txt').write_text(h5[0])
+              print('H5=',h5[0])
+          PY
+          cat diagnostics/h5_mega_url.txt || true
+      - name: Download from Mega
         shell: bash
         continue-on-error: true
         run: |
           set -uxo pipefail
-          URL='https://cloud.mail.ru/public/6ke2/7SxPnkT7F'
-          mkdir -p out diagnostics
-          curl -k -L --compressed \
-            -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36' \
-            -H 'Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8' \
-            -c diagnostics/cookies.txt -b diagnostics/cookies.txt \
-            -D diagnostics/headers.txt -o diagnostics/page.html \
-            -w '%{http_code}\n%{url_effective}\n' "$URL" | tee diagnostics/status.txt
-          wc -c diagnostics/page.html || true
-          head -c 500 diagnostics/page.html || true
-          python3 - <<'PY'
-          import html, json, re
-          from pathlib import Path
-          p=Path('diagnostics/page.html')
-          s=p.read_text(errors='ignore') if p.exists() else ''
-          s=html.unescape(s)
-          candidates=[]
-          for pat in [r'"weblink_get"\s*:\s*\[?\{[^}]*?"url"\s*:\s*"([^"]+)', r'weblink_get.*?(https://[^"\\]+)', r'(https://cloclo[^"\\]+)']:
-              candidates += re.findall(pat,s,re.S)
-          candidates=[u.replace('\\/','/') for u in candidates]
-          Path('diagnostics/candidates.txt').write_text('\n'.join(dict.fromkeys(candidates)))
-          print('CANDIDATES:', candidates[:10])
-          if candidates:
-              direct=candidates[0].rstrip('/')+'/6ke2/7SxPnkT7F'
-              Path('diagnostics/direct_url.txt').write_text(direct)
-              print('DIRECT', direct)
-          PY
-          if [ -s diagnostics/direct_url.txt ]; then
-            DIRECT=$(cat diagnostics/direct_url.txt)
-            curl -k -L --compressed \
-              -A 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/150.0.0.0 Safari/537.36' \
-              -e "$URL" -b diagnostics/cookies.txt \
-              -D diagnostics/download_headers.txt \
-              -OJ --output-dir out "$DIRECT" || true
+          sudo apt-get update
+          sudo apt-get install -y megatools
+          if [ -s diagnostics/h5_mega_url.txt ]; then
+            URL=$(cat diagnostics/h5_mega_url.txt)
+            megadl --path out "$URL" || true
           fi
           find out diagnostics -maxdepth 2 -type f -printf '%p %s bytes\n'
       - name: Upload downloaded archive
@@ -61,4 +58,4 @@ jobs:
         with:
           name: h5-download-diagnostics
           path: diagnostics/*
-          if-no-files-found: warn
+          if-no-files-found: error
