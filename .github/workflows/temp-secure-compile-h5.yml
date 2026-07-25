@@ -44,17 +44,20 @@ jobs:
           $found = $false
           for ($i = 0; $i -lt 180; $i++) {
             git fetch origin "$env:SOURCE_BRANCH" --quiet
-            $ok1 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part01" 2>$null; $LASTEXITCODE -eq 0)
-            $ok2 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part02" 2>$null; $LASTEXITCODE -eq 0)
-            $ok3 = (git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part03" 2>$null; $LASTEXITCODE -eq 0)
+            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part01" 2>$null
+            $ok1 = ($LASTEXITCODE -eq 0)
+            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part02" 2>$null
+            $ok2 = ($LASTEXITCODE -eq 0)
+            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part03" 2>$null
+            $ok3 = ($LASTEXITCODE -eq 0)
             if ($ok1 -and $ok2 -and $ok3) { $found = $true; break }
             Start-Sleep -Seconds 5
           }
           if (-not $found) { throw 'Encrypted source parts were not received.' }
-          git show "origin/$env:SOURCE_BRANCH`:secure/source.part01" | Out-File -Encoding ascii -NoNewline source.part01
-          git show "origin/$env:SOURCE_BRANCH`:secure/source.part02" | Out-File -Encoding ascii -NoNewline source.part02
-          git show "origin/$env:SOURCE_BRANCH`:secure/source.part03" | Out-File -Encoding ascii -NoNewline source.part03
-          $b64 = (Get-Content source.part01 -Raw) + (Get-Content source.part02 -Raw) + (Get-Content source.part03 -Raw)
+          $p1 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part01"
+          $p2 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part02"
+          $p3 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part03"
+          $b64 = ($p1 -join '') + ($p2 -join '') + ($p3 -join '')
           [IO.File]::WriteAllBytes('source_payload.zip', [Convert]::FromBase64String($b64))
 
       - name: Decrypt source archive
