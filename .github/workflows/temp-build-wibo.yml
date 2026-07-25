@@ -15,35 +15,58 @@ jobs:
           repository: decompals/wibo
           ref: 1.2.0
           path: wibo
-      - name: Patch harmless missing WinMM calls
+      - name: Implement WinMM timing functions
         shell: bash
         run: |
           set -euxo pipefail
           python3 - <<'PY'
           from pathlib import Path
+          entry=Path('wibo/src/entry.h')
+          e=entry.read_text()
+          old='void CDECL stubBase(SIZE_T index);'
+          if old not in e:
+              raise SystemExit('entry signature not found')
+          entry.write_text(e.replace(old,'DWORD CDECL stubBase(SIZE_T index);'))
+
           p=Path('wibo/src/modules.cpp')
           s=p.read_text()
-          marker='wibo: call reached missing import'
-          pos=s.find(marker)
-          if pos < 0:
-              raise SystemExit('missing-import marker not found')
-          abort_pos=s.find('abort();',pos)
-          if abort_pos < 0:
-              raise SystemExit('stub abort not found after marker')
-          s=s[:abort_pos]+'return;'+s[abort_pos+len('abort();'):]
-          p.write_text(s)
-          print(s[max(0,pos-300):abort_pos+100])
+          if '#include <chrono>' not in s:
+              s=s.replace('#include <climits>','#include <climits>\n#include <chrono>')
+          old='''void stubBase(SIZE_T index) {
+\tconst char *func = stubFuncNames[index].empty() ? "<unknown>" : stubFuncNames[index].c_str();
+\tconst char *dll = stubDlls[index].empty() ? "<unknown>" : stubDlls[index].c_str();
+\tfprintf(stderr, "wibo: call reached missing import %s from %s\\n", func, dll);
+\tfflush(stderr);
+\tabort();
+}'''
+          new='''DWORD stubBase(SIZE_T index) {
+\tconst char *func = stubFuncNames[index].empty() ? "<unknown>" : stubFuncNames[index].c_str();
+\tconst char *dll = stubDlls[index].empty() ? "<unknown>" : stubDlls[index].c_str();
+\tif (std::strcmp(func, "timeGetTime") == 0) {
+\t\tusing namespace std::chrono;
+\t\treturn static_cast<DWORD>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
+\t}
+\tif (std::strcmp(func, "timeBeginPeriod") == 0 || std::strcmp(func, "timeEndPeriod") == 0) {
+\t\treturn 0;
+\t}
+\tfprintf(stderr, "wibo: call reached missing import %s from %s\\n", func, dll);
+\tfflush(stderr);
+\tabort();
+}'''
+          if old not in s:
+              raise SystemExit('stubBase implementation not found')
+          p.write_text(s.replace(old,new))
           PY
       - name: Build static x86_64
         shell: bash
         run: |
           set -o pipefail
           cd wibo
-          docker build --target export --build-arg BUILD_TYPE=release --build-arg WIBO_VERSION=1.2.0-h5 -o ../dist . 2>&1 | tee ../wibo-build.log
+          docker build --target export --build-arg BUILD_TYPE=release --build-arg WIBO_VERSION=1.2.0-h5-winmm -o ../dist . 2>&1 | tee ../wibo-build.log
       - name: Upload patched wibo and log
         uses: actions/upload-artifact@v4
         with:
-          name: wibo-h5-patched
+          name: wibo-h5-winmm
           path: |
             dist/wibo
             wibo-build.log
