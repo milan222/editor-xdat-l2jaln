@@ -1,4 +1,4 @@
-name: Temp Build Wibo
+name: Temp Build UE2 UCC
 
 on:
   pull_request:
@@ -6,21 +6,28 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-ucc:
+    runs-on: windows-latest
     steps:
-      - name: Checkout wibo
+      - name: Checkout Unreal2004 source
         uses: actions/checkout@v4
         with:
-          repository: decompals/wibo
-          ref: 1.2.0
-          path: wibo
-      - name: Build static x86_64
-        run: |
-          cd wibo
-          docker build --target export --build-arg BUILD_TYPE=release --build-arg WIBO_VERSION=1.2.0 -o ../dist .
-      - name: Upload wibo
+          repository: jmarshall23/Unreal2004
+          ref: 07249c526830e8ffa4e6a3b133c92896f44a686a
+          path: unreal
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Build UCC
+        shell: cmd
+        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32
+      - name: Find UCC
+        shell: pwsh
+        run: Get-ChildItem -Path unreal -Filter UCC.exe -Recurse | Format-Table FullName,Length
+      - name: Upload UCC
         uses: actions/upload-artifact@v4
         with:
-          name: wibo-x86_64
-          path: dist/wibo
+          name: ue2-ucc
+          path: |
+            unreal/System/UCC.exe
+            unreal/UCC/Release/UCC.exe
+          if-no-files-found: error
