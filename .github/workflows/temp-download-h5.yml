@@ -1,0 +1,44 @@
+name: Temp Download H5 Compiler
+
+on:
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download public H5 compiler archive
+        shell: bash
+        run: |
+          set -euxo pipefail
+          URL='https://cloud.mail.ru/public/6ke2/7SxPnkT7F'
+          mkdir -p out
+          wget --quiet -O page.html "$URL"
+          python3 - <<'PY'
+          import re
+          from pathlib import Path
+          s=Path('page.html').read_text(errors='ignore')
+          m=re.search(r'weblink_get.*?(https://[^"\\]+)', s)
+          if not m:
+              # broader fallback
+              urls=re.findall(r'https://[^"\\]+', s)
+              urls=[u for u in urls if 'cloud.mail.ru' in u and ('/public/' in u or '/weblink/' in u)]
+              print('\n'.join(urls[:20]))
+              raise SystemExit('storage URL not found')
+          storage=m.group(1).replace('\\/','/')
+          path='6ke2/7SxPnkT7F'
+          direct=storage.rstrip('/')+'/'+path
+          Path('direct_url.txt').write_text(direct)
+          print(direct)
+          PY
+          DIRECT=$(cat direct_url.txt)
+          wget --continue --no-check-certificate --referer="$URL" "$DIRECT" --content-disposition -P out
+          find out -maxdepth 2 -type f -printf '%p %s bytes\n'
+      - name: Upload H5 compiler archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: h5-interface-compiler-original
+          path: out/*
+          if-no-files-found: error
