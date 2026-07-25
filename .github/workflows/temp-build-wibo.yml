@@ -17,17 +17,21 @@ jobs:
           path: unreal
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
-      - name: Build UCC
+      - name: Build UCC and capture log
         shell: cmd
-        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32
-      - name: Find UCC
+        continue-on-error: true
+        run: msbuild "unreal\UT2 Code.sln" /t:UCC /m /p:Configuration=Release /p:Platform=Win32 /fl /flp:logfile=ucc-build.log;verbosity=diagnostic
+      - name: Find outputs
         shell: pwsh
-        run: Get-ChildItem -Path unreal -Filter UCC.exe -Recurse | Format-Table FullName,Length
-      - name: Upload UCC
+        run: |
+          Get-ChildItem -Path unreal -Filter UCC.exe -Recurse | Format-Table FullName,Length
+          if (Test-Path ucc-build.log) { Get-Content ucc-build.log -Tail 200 }
+      - name: Upload UCC and log
         uses: actions/upload-artifact@v4
         with:
-          name: ue2-ucc
+          name: ue2-ucc-build
           path: |
             unreal/System/UCC.exe
             unreal/UCC/Release/UCC.exe
-          if-no-files-found: error
+            ucc-build.log
+          if-no-files-found: warn
