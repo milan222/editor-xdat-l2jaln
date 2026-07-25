@@ -21,41 +21,39 @@ jobs:
           set -euxo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          entry=Path('wibo/src/entry.h')
-          e=entry.read_text()
-          old='void CDECL stubBase(SIZE_T index);'
-          if old not in e:
+          import re
+          entry = Path('wibo/src/entry.h')
+          e = entry.read_text()
+          old_sig = 'void CDECL stubBase(SIZE_T index);'
+          if old_sig not in e:
               raise SystemExit('entry signature not found')
-          entry.write_text(e.replace(old,'DWORD CDECL stubBase(SIZE_T index);'))
-
-          p=Path('wibo/src/modules.cpp')
-          s=p.read_text()
+          entry.write_text(e.replace(old_sig, 'DWORD CDECL stubBase(SIZE_T index);'))
+          p = Path('wibo/src/modules.cpp')
+          s = p.read_text()
           if '#include <chrono>' not in s:
-              s=s.replace('#include <climits>','#include <climits>\n#include <chrono>')
-          old='''void stubBase(SIZE_T index) {
-\tconst char *func = stubFuncNames[index].empty() ? "<unknown>" : stubFuncNames[index].c_str();
-\tconst char *dll = stubDlls[index].empty() ? "<unknown>" : stubDlls[index].c_str();
-\tfprintf(stderr, "wibo: call reached missing import %s from %s\\n", func, dll);
-\tfflush(stderr);
-\tabort();
-}'''
-          new='''DWORD stubBase(SIZE_T index) {
-\tconst char *func = stubFuncNames[index].empty() ? "<unknown>" : stubFuncNames[index].c_str();
-\tconst char *dll = stubDlls[index].empty() ? "<unknown>" : stubDlls[index].c_str();
-\tif (std::strcmp(func, "timeGetTime") == 0) {
-\t\tusing namespace std::chrono;
-\t\treturn static_cast<DWORD>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
-\t}
-\tif (std::strcmp(func, "timeBeginPeriod") == 0 || std::strcmp(func, "timeEndPeriod") == 0) {
-\t\treturn 0;
-\t}
-\tfprintf(stderr, "wibo: call reached missing import %s from %s\\n", func, dll);
-\tfflush(stderr);
-\tabort();
-}'''
-          if old not in s:
-              raise SystemExit('stubBase implementation not found')
-          p.write_text(s.replace(old,new))
+              s = s.replace('#include <climits>', '#include <climits>\\n#include <chrono>')
+          pattern = r'void stubBase\(SIZE_T index\) \{.*?\n\}'
+          lines = [
+              'DWORD stubBase(SIZE_T index) {',
+              '    const char *func = stubFuncNames[index].empty() ? "<unknown>" : stubFuncNames[index].c_str();',
+              '    const char *dll = stubDlls[index].empty() ? "<unknown>" : stubDlls[index].c_str();',
+              '    if (std::strcmp(func, "timeGetTime") == 0) {',
+              '        using namespace std::chrono;',
+              '        return static_cast<DWORD>(duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());',
+              '    }',
+              '    if (std::strcmp(func, "timeBeginPeriod") == 0 || std::strcmp(func, "timeEndPeriod") == 0) {',
+              '        return 0;',
+              '    }',
+              '    fprintf(stderr, "wibo: call reached missing import %s from %s\\\\n", func, dll);',
+              '    fflush(stderr);',
+              '    abort();',
+              '}'
+          ]
+          replacement = '\\n'.join(lines)
+          s2, count = re.subn(pattern, replacement, s, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit(f'stubBase replacement count={count}')
+          p.write_text(s2)
           PY
       - name: Build static x86_64
         shell: bash
