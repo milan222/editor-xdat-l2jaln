@@ -35,17 +35,18 @@ jobs:
           Set-Content -Path $native -Value $s -Encoding UTF8
           $lev = 'unreal/Engine/Src/UnLevAct.cpp'
           $s = Get-Content $lev -Raw
-          $sort = @'
-for( INT SortI=0; SortI<NumHits-1; SortI++ )
-			for( INT SortJ=SortI+1; SortJ<NumHits; SortJ++ )
-				if( CompareHits(&Hits[SortI], &Hits[SortJ]) > 0 )
-				{
-					FCheckResult TempHit = Hits[SortI];
-					Hits[SortI] = Hits[SortJ];
-					Hits[SortJ] = TempHit;
-				}
-'@
-          $s = $s.Replace('appQsort( Hits, NumHits, sizeof(Hits[0]), (QSORT_COMPARE)CompareHits );', $sort.TrimEnd())
+          $sortLines = @(
+            'for( INT SortI=0; SortI<NumHits-1; SortI++ )',
+            "`t`t`tfor( INT SortJ=SortI+1; SortJ<NumHits; SortJ++ )",
+            "`t`t`t`tif( CompareHits(&Hits[SortI], &Hits[SortJ]) > 0 )",
+            "`t`t`t`t{",
+            "`t`t`t`t`tFCheckResult TempHit = Hits[SortI];",
+            "`t`t`t`t`tHits[SortI] = Hits[SortJ];",
+            "`t`t`t`t`tHits[SortJ] = TempHit;",
+            "`t`t`t`t}"
+          )
+          $sort = $sortLines -join "`r`n"
+          $s = $s.Replace('appQsort( Hits, NumHits, sizeof(Hits[0]), (QSORT_COMPARE)CompareHits );', $sort)
           Set-Content -Path $lev -Value $s -Encoding UTF8
       - name: Build UCC and capture log
         shell: cmd
