@@ -17,7 +17,7 @@ jobs:
           path: unreal
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
-      - name: Retarget legacy projects
+      - name: Retarget and patch legacy source
         shell: pwsh
         run: |
           Get-ChildItem unreal -Recurse -Filter *.vcxproj | ForEach-Object {
@@ -29,6 +29,14 @@ jobs:
             $s = $s -replace '<WarningLevel>Level4</WarningLevel>', '<WarningLevel>Level3</WarningLevel>'
             Set-Content -Path $p -Value $s -Encoding UTF8
           }
+          $native = 'unreal/Core/Inc/UnCoreNative.h'
+          $s = Get-Content $native -Raw
+          $s = $s.Replace('{TEXT("int")TEXT(#cls)TEXT(#name), &cls::name},', '{TEXT("int") TEXT(#cls) TEXT(#name), &cls::name},')
+          Set-Content -Path $native -Value $s -Encoding UTF8
+          $lev = 'unreal/Engine/Src/UnLevAct.cpp'
+          $s = Get-Content $lev -Raw
+          $s = $s.Replace('appQsort( Hits, NumHits, sizeof(Hits[0]), (QSORT_COMPARE)CompareHits );', 'qsort( Hits, NumHits, sizeof(Hits[0]), (int (__cdecl *)(const void*, const void*))CompareHits );')
+          Set-Content -Path $lev -Value $s -Encoding UTF8
       - name: Build UCC and capture log
         shell: cmd
         continue-on-error: true
