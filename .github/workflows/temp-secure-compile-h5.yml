@@ -3,6 +3,8 @@ name: Temp Secure Compile H5 Interface
 on:
   pull_request:
     branches: [ main ]
+    paths:
+      - '.github/workflows/temp-secure-compile-h5.yml'
   workflow_dispatch:
 
 permissions:
@@ -13,10 +15,11 @@ jobs:
   compile:
     if: github.head_ref == 'temp/interface-u-build-20260725'
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_BRANCH: temp/interface-u-build-20260725
+      PART_COUNT: 34
     steps:
       - name: Checkout temporary branch
         uses: actions/checkout@v4
@@ -42,23 +45,25 @@ jobs:
         shell: pwsh
         run: |
           $found = $false
-          for ($i = 0; $i -lt 180; $i++) {
+          for ($attempt = 0; $attempt -lt 360; $attempt++) {
             git fetch origin "$env:SOURCE_BRANCH" --quiet
-            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part01" 2>$null
-            $ok1 = ($LASTEXITCODE -eq 0)
-            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part02" 2>$null
-            $ok2 = ($LASTEXITCODE -eq 0)
-            git cat-file -e "origin/$env:SOURCE_BRANCH`:secure/source.part03" 2>$null
-            $ok3 = ($LASTEXITCODE -eq 0)
-            if ($ok1 -and $ok2 -and $ok3) { $found = $true; break }
+            $all = $true
+            for ($n = 1; $n -le [int]$env:PART_COUNT; $n++) {
+              $path = ('secure-v2/source.part{0:d3}' -f $n)
+              git cat-file -e "origin/$env:SOURCE_BRANCH`:$path" 2>$null
+              if ($LASTEXITCODE -ne 0) { $all = $false; break }
+            }
+            if ($all) { $found = $true; break }
             Start-Sleep -Seconds 5
           }
           if (-not $found) { throw 'Encrypted source parts were not received.' }
-          $p1 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part01"
-          $p2 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part02"
-          $p3 = git show "origin/$env:SOURCE_BRANCH`:secure/source.part03"
-          $b64 = ($p1 -join '') + ($p2 -join '') + ($p3 -join '')
-          [IO.File]::WriteAllBytes('source_payload.zip', [Convert]::FromBase64String($b64))
+          $builder = [Text.StringBuilder]::new()
+          for ($n = 1; $n -le [int]$env:PART_COUNT; $n++) {
+            $path = ('secure-v2/source.part{0:d3}' -f $n)
+            $lines = git show "origin/$env:SOURCE_BRANCH`:$path"
+            [void]$builder.Append(($lines -join ''))
+          }
+          [IO.File]::WriteAllBytes('source_payload.zip', [Convert]::FromBase64String($builder.ToString()))
 
       - name: Decrypt source archive
         shell: pwsh
@@ -75,11 +80,12 @@ jobs:
       - name: Download original H5 compiler artifact
         shell: pwsh
         run: |
-          gh api -H 'Accept: application/vnd.github+json' /repos/milan222/editor-xdat-l2jaln/actions/artifacts/8624952463/zip > compiler_artifact.zip
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          Invoke-WebRequest -Headers $headers -Uri 'https://api.github.com/repos/milan222/editor-xdat-l2jaln/actions/artifacts/8624952463/zip' -OutFile compiler_artifact.zip
           Expand-Archive compiler_artifact.zip -DestinationPath compiler_outer -Force
           $inner = Get-ChildItem compiler_outer -Filter 'Compiler_Interface-H5.zip' -Recurse | Select-Object -First 1
           if (-not $inner) { throw 'Compiler_Interface-H5.zip not found.' }
-          & 'C:\Program Files\7-Zip\7z.exe' x "-pNewYear2017" '-y' "-ocompiler" $inner.FullName
+          & 'C:\Program Files\7-Zip\7z.exe' x '-pNewYear2017' '-y' '-ocompiler' $inner.FullName
           if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed: $LASTEXITCODE" }
 
       - name: Install repaired Interface sources
@@ -87,7 +93,7 @@ jobs:
         run: |
           $compilerRoot = Get-ChildItem compiler -Directory -Recurse | Where-Object { Test-Path (Join-Path $_.FullName 'System\UCC.exe') } | Select-Object -First 1
           if (-not $compilerRoot) { throw 'H5 compiler root not found.' }
-          $sourceInterface = Get-ChildItem repaired_source -Directory -Recurse | Where-Object { Test-Path (Join-Path $_.FullName 'Classes') -and (Test-Path (Join-Path $_.FullName 'Interface.UPKG')) } | Select-Object -First 1
+          $sourceInterface = Get-ChildItem repaired_source -Directory -Recurse | Where-Object { (Test-Path (Join-Path $_.FullName 'Classes')) -and (Test-Path (Join-Path $_.FullName 'Interface.UPKG')) } | Select-Object -First 1
           if (-not $sourceInterface) { throw 'Repaired Interface source root not found.' }
           $targetInterface = Join-Path $compilerRoot.FullName 'interface'
           Remove-Item (Join-Path $targetInterface 'Classes') -Recurse -Force -ErrorAction SilentlyContinue
@@ -98,14 +104,13 @@ jobs:
           (Get-ChildItem (Join-Path $targetInterface 'Classes') -Filter '*.uc').Count | Out-File source_count.txt -Encoding ascii
 
       - name: Compile Interface.u
-        id: compile
         shell: pwsh
         continue-on-error: true
         run: |
           $root = Get-Content compiler_root.txt -Raw
           $system = Join-Path $root 'System'
           Push-Location $system
-          Remove-Item Interface.u,UCC.log -Force -ErrorAction SilentlyContinue
+          Remove-Item Interface.u,UCC.log,compile_stdout.txt,compile_status.txt -Force -ErrorAction SilentlyContinue
           cmd /c 'UCC.exe make -NoBind > compile_stdout.txt 2>&1'
           $code = $LASTEXITCODE
           "UCC_EXIT_CODE=$code" | Out-File compile_status.txt -Encoding ascii
