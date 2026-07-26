@@ -1,0 +1,30 @@
+name: Temp Download Cloudflared
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/temp-download-cloudflared.yml'
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download cloudflared
+        shell: bash
+        run: |
+          set -euxo pipefail
+          curl -L --fail --retry 5 -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared
+          ./cloudflared --version
+          sha256sum cloudflared > SHA256SUMS.txt
+      - name: Upload cloudflared
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloudflared-linux-amd64
+          path: |
+            cloudflared
+            SHA256SUMS.txt
+          retention-days: 1
+          if-no-files-found: error
