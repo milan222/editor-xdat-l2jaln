@@ -1,0 +1,20 @@
+name: Temp Resolve Cloudflare
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/temp-resolve-cloudflare.yml'
+  workflow_dispatch:
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve Cloudflare tunnel hosts
+        shell: bash
+        run: |
+          set -x
+          for h in api.trycloudflare.com trycloudflare.com region1.v2.argotunnel.com region2.v2.argotunnel.com cftunnel.com; do
+            echo "=== $h ==="
+            getent ahostsv4 "$h" || true
+            dig +short A "$h" || true
+          done
