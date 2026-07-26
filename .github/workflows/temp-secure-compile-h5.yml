@@ -19,7 +19,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       SOURCE_BRANCH: temp/interface-u-build-20260725
-      PART_COUNT: 44
+      PART_COUNT: 8
     steps:
       - name: Checkout temporary branch
         uses: actions/checkout@v4
@@ -36,7 +36,7 @@ jobs:
       - name: Publish one-time public key
         uses: actions/upload-artifact@v4
         with:
-          name: h5-source-public-key
+          name: h5-source-public-key-v4
           path: public.pem
           retention-days: 1
           if-no-files-found: error
@@ -49,7 +49,7 @@ jobs:
             git fetch origin "$env:SOURCE_BRANCH" --quiet
             $all = $true
             for ($n = 1; $n -le [int]$env:PART_COUNT; $n++) {
-              $path = ('secure-v3/source.part{0:d3}' -f $n)
+              $path = ('secure-v4/source.part{0:d3}' -f $n)
               git cat-file -e "origin/$env:SOURCE_BRANCH`:$path" 2>$null
               if ($LASTEXITCODE -ne 0) { $all = $false; break }
             }
@@ -59,7 +59,7 @@ jobs:
           if (-not $found) { throw 'Encrypted source parts were not received.' }
           $builder = [Text.StringBuilder]::new()
           for ($n = 1; $n -le [int]$env:PART_COUNT; $n++) {
-            $path = ('secure-v3/source.part{0:d3}' -f $n)
+            $path = ('secure-v4/source.part{0:d3}' -f $n)
             $lines = git show "origin/$env:SOURCE_BRANCH`:$path"
             [void]$builder.Append(($lines -join ''))
           }
@@ -74,10 +74,8 @@ jobs:
           if ($bytes.Length -ne 48) { throw "Invalid key material length: $($bytes.Length)" }
           $key = -join ($bytes[0..31] | ForEach-Object { $_.ToString('x2') })
           $iv = -join ($bytes[32..47] | ForEach-Object { $_.ToString('x2') })
-          openssl enc -d -aes-256-cbc -K $key -iv $iv -in secure_payload/source.bin -out repaired_source.tar.xz
-          New-Item repaired_source -ItemType Directory -Force | Out-Null
-          tar -xJf repaired_source.tar.xz -C repaired_source
-          if ($LASTEXITCODE -ne 0) { throw "tar extraction failed: $LASTEXITCODE" }
+          openssl enc -d -aes-256-cbc -K $key -iv $iv -in secure_payload/source.bin -out repaired_source.zip
+          Expand-Archive repaired_source.zip -DestinationPath repaired_source -Force
 
       - name: Download original H5 compiler artifact
         shell: pwsh
@@ -138,7 +136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: h5-interface-compile-result
+          name: h5-interface-compile-result-v4
           path: result/*
           retention-days: 1
           if-no-files-found: warn
