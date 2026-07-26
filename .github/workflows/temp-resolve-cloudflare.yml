@@ -1,4 +1,4 @@
-name: Temp Resolve Cloudflare
+name: Temp Resolve Upload Hosts
 on:
   pull_request:
     branches: [ main ]
@@ -9,11 +9,11 @@ jobs:
   resolve:
     runs-on: ubuntu-latest
     steps:
-      - name: Resolve Cloudflare tunnel hosts
+      - name: Resolve upload hosts
         shell: bash
         run: |
           set -x
-          for h in api.trycloudflare.com trycloudflare.com region1.v2.argotunnel.com region2.v2.argotunnel.com cftunnel.com; do
+          for h in 0x0.st temp.sh file.io transfer.sh paste.rs catbox.moe litterbox.catbox.moe bashupload.com; do
             echo "=== $h ==="
             getent ahostsv4 "$h" || true
             dig +short A "$h" || true
