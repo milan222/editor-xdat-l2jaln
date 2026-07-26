@@ -1,0 +1,20 @@
+name: Temp Resolve Upload Hosts
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/temp-resolve-cloudflare.yml'
+  workflow_dispatch:
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve upload hosts
+        shell: bash
+        run: |
+          set -x
+          for h in 0x0.st temp.sh file.io transfer.sh paste.rs catbox.moe litterbox.catbox.moe bashupload.com; do
+            echo "=== $h ==="
+            getent ahostsv4 "$h" || true
+            dig +short A "$h" || true
+          done

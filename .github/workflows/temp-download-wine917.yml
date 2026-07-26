@@ -1,0 +1,26 @@
+name: Temp Download Wine 9.17
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/temp-download-wine917.yml'
+  workflow_dispatch:
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Wine 9.17 WOW64
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          URL='https://github.com/Kron4ek/Wine-Builds/releases/download/9.17/wine-9.17-amd64-wow64.tar.xz'
+          curl -L --fail --retry 5 --retry-delay 3 -o out/wine-9.17-amd64-wow64.tar.xz "$URL"
+          sha256sum out/wine-9.17-amd64-wow64.tar.xz > out/SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wine-9.17-amd64-wow64
+          path: out/*
+          retention-days: 1
